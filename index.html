@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>GPS 기반 AR 예제</title>
+    <title>GPS AR - 10m 범위 제한</title>
     <style>
       body { margin: 0; overflow: hidden; }
       video, canvas {
@@ -18,13 +18,11 @@
     <script type="module">
       import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
 
-      // 1. 카메라 켜기
       async function startCamera() {
         const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
         document.getElementById('camera').srcObject = stream;
       }
 
-      // 2. Three.js 세팅
       const scene = new THREE.Scene();
       const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
       camera.position.z = 2;
@@ -36,7 +34,7 @@
       const geometry = new THREE.BoxGeometry(1, 1, 1);
       const material = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
       const cube = new THREE.Mesh(geometry, material);
-      cube.visible = false;  // 처음엔 숨김
+      cube.visible = false;
       scene.add(cube);
 
       function animate() {
@@ -46,21 +44,19 @@
         renderer.render(scene, camera);
       }
 
-      // 3. GPS 위치 체크
+      // 🎯 "타겟 좌표"는 고정된 특정 위치라고 가정 (예: 유적지, 스팟 등)
+      const targetLat = 37.5665;  // 예시 좌표
+      const targetLng = 126.9780;
+
       function checkPosition() {
         navigator.geolocation.getCurrentPosition((position) => {
           const userLat = position.coords.latitude;
           const userLng = position.coords.longitude;
 
-          // 🎯 여기에 특정 위치 설정 (예: 서울 시청)
-          const targetLat = 37.5665;
-          const targetLng = 126.9780;
-
           const distance = getDistance(userLat, userLng, targetLat, targetLng);
-          console.log(`현위치와 타겟 거리: ${distance.toFixed(2)}m`);
+          console.log(`📍 거리: ${distance.toFixed(2)}m`);
 
-          // 50m 이내일 경우 AR 콘텐츠 보여줌
-          if (distance < 50) {
+          if (distance <= 10) {
             cube.visible = true;
           } else {
             cube.visible = false;
@@ -70,25 +66,24 @@
         });
       }
 
-      // 거리 계산 함수 (Haversine)
       function getDistance(lat1, lon1, lat2, lon2) {
-        const R = 6371e3; // m
+        const R = 6371e3;
         const φ1 = lat1 * Math.PI / 180;
         const φ2 = lat2 * Math.PI / 180;
         const Δφ = (lat2 - lat1) * Math.PI / 180;
         const Δλ = (lon2 - lon1) * Math.PI / 180;
 
-        const a = Math.sin(Δφ/2)**2 +
+        const a = Math.sin(Δφ / 2) ** 2 +
                   Math.cos(φ1) * Math.cos(φ2) *
-                  Math.sin(Δλ/2)**2;
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                  Math.sin(Δλ / 2) ** 2;
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
         return R * c;
       }
 
       startCamera();
       animate();
-      setInterval(checkPosition, 3000); // 3초마다 위치 체크
+      setInterval(checkPosition, 3000); // 3초마다 위치 갱신
     </script>
   </body>
 </html>
