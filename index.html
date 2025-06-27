@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Directional GPS AR</title>
+    <title>Directional Moving GPS AR</title>
     <style>
       body { margin: 0; overflow: hidden; }
       video, canvas {
@@ -30,7 +30,7 @@
       document.body.appendChild(renderer.domElement);
 
       const geometry = new THREE.BoxGeometry(1, 1, 1);
-      const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+      const material = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
       const cube = new THREE.Mesh(geometry, material);
       scene.add(cube);
       cube.visible = false;
@@ -72,11 +72,11 @@
         const relativeBearing = bearing - userHeading;
         const angleRad = relativeBearing * Math.PI / 180;
 
-        const x = Math.sin(angleRad) * distance * 0.01;
-        const z = -Math.cos(angleRad) * distance * 0.01;
+        const x = Math.sin(angleRad) * distance * 0.05;
+        const z = -Math.cos(angleRad) * distance * 0.05;
 
         cube.position.set(x, 0, z);
-        cube.visible = distance < 20;
+        cube.visible = distance < 30;
       }
 
       navigator.geolocation.getCurrentPosition((pos) => {
@@ -101,7 +101,7 @@
           userLat = pos.coords.latitude;
           userLng = pos.coords.longitude;
         });
-      }, 2000);
+      }, 1500);
 
       function animate() {
         requestAnimationFrame(animate);
