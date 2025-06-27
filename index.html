@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>WebXR AR 기본</title>
+  <title>WebXR AR 큐브 삭제 및 배치</title>
   <style>
     body { margin: 0; overflow: hidden; }
     canvas { display: block; }
@@ -18,12 +18,12 @@
 
     let camera, scene, renderer;
     let controller;
-    let reticle; // 바닥에 배치할 가상 조준선
+    let reticle;
 
     init();
+
     function init() {
       scene = new THREE.Scene();
-
       camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
 
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -32,16 +32,11 @@
       renderer.xr.enabled = true;
       document.body.appendChild(renderer.domElement);
 
-      // 빛
+      // 조명
       const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
       scene.add(light);
 
-      // 오브젝트: 클릭하면 배치할 큐브
-      const geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
-      const material = new THREE.MeshStandardMaterial({ color: 0xff0000 });
-      const cube = new THREE.Mesh(geometry, material);
-
-      // 바닥 감지용 reticle (조준선)
+      // 바닥 조준선
       const ringGeo = new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2);
       const ringMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
       reticle = new THREE.Mesh(ringGeo, ringMat);
@@ -49,18 +44,44 @@
       reticle.visible = false;
       scene.add(reticle);
 
-      // hit-test용 컨트롤러
+      // 컨트롤러 설정
       controller = renderer.xr.getController(0);
       controller.addEventListener('select', () => {
         if (reticle.visible) {
-          const clone = cube.clone();
-          clone.position.setFromMatrixPosition(reticle.matrix);
-          scene.add(clone);
+          // 1) reticle 위치 가져오기
+          const reticlePosition = new THREE.Vector3();
+          reticle.matrix.decompose(reticlePosition, new THREE.Quaternion(), new THREE.Vector3());
+
+          // 2) 1.5m 이내 큐브 삭제
+          const removeList = [];
+          scene.traverse(obj => {
+            if (obj.isMesh && obj.geometry.type === 'BoxGeometry') {
+              const objPosition = new THREE.Vector3();
+              obj.getWorldPosition(objPosition);
+              const distance = reticlePosition.distanceTo(objPosition);
+              if (distance < 1.5) {
+                removeList.push(obj);
+              }
+            }
+          });
+          removeList.forEach(obj => {
+            scene.remove(obj);
+            obj.geometry.dispose();
+            obj.material.dispose();
+          });
+
+          // 3) 새로운 큐브 배치
+          const cube = new THREE.Mesh(
+            new THREE.BoxGeometry(0.2, 0.2, 0.2),
+            new THREE.MeshStandardMaterial({ color: 0xff0000 })
+          );
+          cube.position.copy(reticlePosition);
+          scene.add(cube);
         }
       });
       scene.add(controller);
 
-      // AR 버튼 생성
+      // AR 버튼 삽입
       document.body.appendChild(ARButton.createButton(renderer, {
         requiredFeatures: ['hit-test']
       }));
@@ -76,7 +97,7 @@
         const refSpace = renderer.xr.getReferenceSpace();
         const session = renderer.xr.getSession();
 
-        if (hitTestSource == null) {
+        if (hitTestSource === null) {
           session.requestReferenceSpace('viewer').then(space => {
             localSpace = space;
             session.requestHitTestSource({ space }).then(source => {
