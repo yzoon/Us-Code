@@ -112,35 +112,62 @@
 
     // ─────────────────────────────
 
-    let refECEF = null; // 기준 위치 (절대 위치)
-    let cameraOffset = new THREE.Vector3(0, 0, 0); // 씬 내 카메라 상대 위치
+    let refECEF = null;          // 절대 기준점
+    let fusedPosition = new THREE.Vector3(); // 융합된 위치
+    let pdrOffset = new THREE.Vector3();     // PDR 이동 누적값
 
-    function setCameraFromGeolocation(lat, lon, alt) {
-    const currentECEF = wgs84ToECEF(lat, lon, alt || 0);
-
-    if (!refECEF) {
-      refECEF = currentECEF.clone(); // 기준점 저장
+    // WGS84 → ECEF
+    function wgs84ToECEF(lat, lon, alt = 0) {
+      const a = 6378137.0, f = 1 / 298.257223563, e2 = f * (2 - f);
+      const radLat = THREE.MathUtils.degToRad(lat);
+      const radLon = THREE.MathUtils.degToRad(lon);
+      const cosLat = Math.cos(radLat), sinLat = Math.sin(radLat);
+      const cosLon = Math.cos(radLon), sinLon = Math.sin(radLon);
+      const N = a / Math.sqrt(1 - e2 * sinLat * sinLat);
+      const x = (N + alt) * cosLat * cosLon;
+      const y = (N + alt) * cosLat * sinLon;
+      const z = (N * (1 - e2) + alt) * sinLat;
+      return new THREE.Vector3(x, y, z);
     }
 
-    // 기준점 대비 상대 위치 계산
-    const relative = currentECEF.clone().sub(refECEF);
-
-    // 상대 위치를 씬 좌표로 사용 (단위는 meter)
-    camera.position.set(relative.x, relative.y, relative.z);
-    cameraOffset.copy(camera.position); // 이후 PDR 이동에 이 offset 기준 사용 가능
-    }
+    // Geolocation 업데이트
     navigator.geolocation.watchPosition(
-      position => {
-        const { latitude, longitude, altitude } = position.coords;
-        setCameraFromGeolocation(latitude, longitude, altitude);
+      pos => {
+        const { latitude, longitude, altitude } = pos.coords;
+        const nowECEF = wgs84ToECEF(latitude, longitude, altitude || 0);
+        if (!refECEF) {
+          refECEF = nowECEF.clone();
+          fusedPosition.set(0, 0, 0); // 초기 위치 (refECEF - refECEF)
+        } else {
+          const geoOffset = nowECEF.clone().sub(refECEF);
+          const totalOffset = geoOffset.add(pdrOffset); // 융합
+          fusedPosition.copy(totalOffset);
+        }
+        camera.position.copy(fusedPosition);
       },
-      error => console.error(error),
-      {
-        enableHighAccuracy: true,
-        maximumAge: 1000,
-        timeout: 5000
-      }
+      err => console.error('Geo error:', err),
+      { enableHighAccuracy: true, maximumAge: 1000, timeout: 5000 }
     );
+
+    // PDR 이동
+    window.addEventListener('devicemotion', ev => {
+      const acc = ev.acceleration || ev.accelerationIncludingGravity;
+      if (!acc) return;
+
+      const now = ev.timeStamp;
+      const accVec = new THREE.Vector3(acc.x, acc.y, acc.z).applyQuaternion(quaternion);
+
+      const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(quaternion).normalize();
+      const proj = accVec.dot(forward);
+
+      if (Math.abs(proj) > STEP_THRESHOLD && (now - lastStepTs) > MIN_STEP_INTERVAL) {
+        lastStepTs = now;
+        const delta = forward.clone().multiplyScalar(STEP_LENGTH * Math.sign(proj));
+        pdrOffset.add(delta);           // PDR 오차 누적
+        fusedPosition.add(delta);       // 융합 위치도 이동
+        camera.position.copy(fusedPosition);
+      }
+    });
 
     // 7) 렌더 루프
     function animate() {
