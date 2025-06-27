@@ -44,12 +44,10 @@
     // 5) 회전 적용용 변수들
     const euler        = new THREE.Euler();
     const quaternion   = new THREE.Quaternion();
-    // three.js 월드 좌표계 보정 (DeviceOrientationControls 내부에서 사용하는 값)
     const worldTransform = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
-    // 화면 회전(가로/세로) 보정용
     const screenTransform = new THREE.Quaternion();
     function updateScreenTransform(){
-      const orient = window.orientation || 0; // 0, 90, -90, 180
+      const orient = window.orientation || 0;
       screenTransform.setFromAxisAngle(
         new THREE.Vector3(0, 0, 1),
         -orient * THREE.MathUtils.DEG2RAD
@@ -60,64 +58,80 @@
 
     // 6) DeviceOrientation 이벤트 수신 및 카메라 회전 적용
     window.addEventListener('deviceorientation', (event) => {
-      // 라디안 단위로 변환
-      const alpha = THREE.MathUtils.degToRad(event.alpha  || 0); // Z축(요 yaw)
-      const beta  = THREE.MathUtils.degToRad(event.beta   || 0); // X축(피치)
-      const gamma = THREE.MathUtils.degToRad(event.gamma  || 0); // Y축(롤)
+      const alpha = THREE.MathUtils.degToRad(event.alpha  || 0);
+      const beta  = THREE.MathUtils.degToRad(event.beta   || 0);
+      const gamma = THREE.MathUtils.degToRad(event.gamma  || 0);
 
-      // three.js DeviceOrientationControls와 동일한 순서로 Euler 세팅
       euler.set(beta, alpha, -gamma, 'YXZ');
       quaternion.setFromEuler(euler);
 
-      // 기기→월드 좌표 보정
       quaternion.multiply(worldTransform);
-      // 화면 회전 보정
       quaternion.multiply(screenTransform);
 
-      // 카메라에 회전 적용
       camera.quaternion.copy(quaternion);
     });
+
+    // 🧭 위도/경도를 거리(m)로 변환하는 함수
+    function gpsToMeter(lat1, lon1, lat2, lon2) {
+      const R = 6378137; // 지구 반지름 in meters
+      const dLat = THREE.MathUtils.degToRad(lat2 - lat1);
+      const dLon = THREE.MathUtils.degToRad(lon2 - lon1);
+      const a = Math.sin(dLat/2) ** 2 +
+                Math.cos(THREE.MathUtils.degToRad(lat1)) *
+                Math.cos(THREE.MathUtils.degToRad(lat2)) *
+                Math.sin(dLon/2) ** 2;
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      return R * c;
+    }
+
+    // 7) Geolocation 기반 위치 추적
     let startLatitude = null;
     let startLongitude = null;
     let startAltitude = null;
+
     if ('geolocation' in navigator) {
-      // 위치 변경을 계속 감시
       const watchId = navigator.geolocation.watchPosition(
         position => {
           const { latitude, longitude, altitude, accuracy } = position.coords;
+
           if (startLongitude == null) {
             startLatitude = latitude;
             startLongitude = longitude;
             startAltitude = altitude;
-            console.log([ startLatitude, startLongitude, startAltitude ])
+            console.log([ startLatitude, startLongitude, startAltitude ]);
           }
+
           let temp = [latitude, longitude, altitude].map((e) => { return (e * 100).toFixed(1) });
           console.log(
             `위도: ${temp[0]}`,
             `경도: ${temp[1]}`,
-            `고도: ${temp[2]}`,      // 단, 브라우저/단말기 지원 시
+            `고도: ${temp[2]}`,
             `정확도: ${accuracy}m`
           );
-          // 여기에서 three.js 오브젝트 이동 등에 활용
+
+          // 🌍 위치 기반 카메라 이동
+          if (startLatitude != null && startLongitude != null) {
+            const dx = gpsToMeter(startLatitude, startLongitude, latitude, startLongitude);
+            const dz = gpsToMeter(startLatitude, startLongitude, startLatitude, longitude);
+            const offsetX = (latitude < startLatitude) ? -dx : dx;
+            const offsetZ = (longitude < startLongitude) ? -dz : dz;
+            camera.position.set(offsetX, 1.6, offsetZ);
+          }
         },
         error => {
           console.error('위치 정보를 가져오는 중 오류 발생:', error);
         },
         {
-          enableHighAccuracy: true,  // GPS 사용 우선
-          maximumAge: 1000,          // 1초 전 위치 데이터까지 허용
-          timeout: 5000              // 5초 이내에 응답 없으면 error 콜백
+          enableHighAccuracy: true,
+          maximumAge: 1000,
+          timeout: 5000
         }
       );
-
-      // 나중에 감시를 멈추고 싶다면:
-      // navigator.geolocation.clearWatch(watchId);
     } else {
       console.warn('이 브라우저는 Geolocation API를 지원하지 않습니다.');
     }
 
-
-    // 7) 렌더 루프
+    // 8) 렌더 루프
     function animate() {
       requestAnimationFrame(animate);
       renderer.render(scene, camera);
