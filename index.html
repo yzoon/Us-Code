@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>GPS AR - 1m 범위 제한</title>
+    <title>GPS AR - 내 주변 1m 타겟</title>
     <style>
       body { margin: 0; overflow: hidden; }
       video, canvas {
@@ -17,6 +17,9 @@
     <video id="camera" autoplay playsinline muted></video>
     <script type="module">
       import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
+
+      let targetLat = null;
+      let targetLng = null;
 
       async function startCamera() {
         const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
@@ -44,17 +47,34 @@
         renderer.render(scene, camera);
       }
 
-      // 🎯 "타겟 좌표"는 고정된 특정 위치라고 가정 (예: 유적지, 스팟 등)
-      const targetLat = 37.5665;  // 예시 좌표
-      const targetLng = 126.9780;
+      function initTargetNearUser() {
+        navigator.geolocation.getCurrentPosition((position) => {
+          const userLat = position.coords.latitude;
+          const userLng = position.coords.longitude;
+
+          // 1m ≈ 0.000009 degrees (위도 기준)
+          const offset = 0.000009;
+          const randomLatOffset = (Math.random() - 0.5) * 2 * offset;
+          const randomLngOffset = (Math.random() - 0.5) * 2 * offset;
+
+          targetLat = userLat + randomLatOffset;
+          targetLng = userLng + randomLngOffset;
+
+          console.log("🎯 타겟 좌표:", targetLat, targetLng);
+        }, (err) => {
+          console.error("GPS 초기화 실패:", err);
+        });
+      }
 
       function checkPosition() {
+        if (!targetLat || !targetLng) return;
+
         navigator.geolocation.getCurrentPosition((position) => {
           const userLat = position.coords.latitude;
           const userLng = position.coords.longitude;
 
           const distance = getDistance(userLat, userLng, targetLat, targetLng);
-          console.log(`📍 거리: ${distance.toFixed(2)}m`);
+          console.log(`📍 현재 거리: ${distance.toFixed(2)}m`);
 
           if (distance <= 1) {
             cube.visible = true;
@@ -83,7 +103,8 @@
 
       startCamera();
       animate();
-      setInterval(checkPosition, 3000); // 3초마다 위치 갱신
+      initTargetNearUser();
+      setInterval(checkPosition, 3000);
     </script>
   </body>
 </html>
