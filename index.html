@@ -3,146 +3,107 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Three.js Gyro-Controlled Camera</title>
+  <title>WebXR AR 기본</title>
   <style>
     body { margin: 0; overflow: hidden; }
     canvas { display: block; }
+    button { position: absolute; top: 20px; left: 20px; z-index: 1; }
   </style>
 </head>
 <body>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.154.0/build/three.min.js"></script>
-  <script>
-    // 1) 씬, 카메라, 렌더러 세팅
-    const scene    = new THREE.Scene();
-    const camera   = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 1000);
-    camera.position.set(0, 1.6, 0);
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(innerWidth, innerHeight);
-    document.body.appendChild(renderer.domElement);
+  <button id="start-ar">AR 시작</button>
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.154.0/build/three.module.js';
+    import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.154.0/examples/jsm/webxr/ARButton.js';
 
-    // 2) 예시용 큐브
-    const cube = new THREE.Mesh(
-      new THREE.BoxGeometry(1, 1, 1),
-      new THREE.MeshStandardMaterial({ color: 0x00ff00 })
-    );
-    cube.position.set(0, 1.6, -5);
-    scene.add(cube);
+    let camera, scene, renderer;
+    let controller;
+    let reticle; // 바닥에 배치할 가상 조준선
 
-    // 3) 조명
-    scene.add(new THREE.AmbientLight(0x404040));
-    const dirLight = new THREE.DirectionalLight(0xffffff, 1);
-    dirLight.position.set(5, 10, 7.5);
-    scene.add(dirLight);
+    init();
+    function init() {
+      scene = new THREE.Scene();
 
-    // 4) 리사이즈 대응
-    window.addEventListener('resize', () => {
-      camera.aspect = innerWidth / innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(innerWidth, innerHeight);
-    });
+      camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
 
-    // 5) 회전 적용용 변수들
-    const euler        = new THREE.Euler();
-    const quaternion   = new THREE.Quaternion();
-    const worldTransform = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
-    const screenTransform = new THREE.Quaternion();
-    function updateScreenTransform(){
-      const orient = window.orientation || 0;
-      screenTransform.setFromAxisAngle(
-        new THREE.Vector3(0, 0, 1),
-        -orient * THREE.MathUtils.DEG2RAD
-      );
-    }
-    window.addEventListener('orientationchange', updateScreenTransform);
-    updateScreenTransform();
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.xr.enabled = true;
+      document.body.appendChild(renderer.domElement);
 
-    // 6) DeviceOrientation 이벤트 수신 및 카메라 회전 적용
-    window.addEventListener('deviceorientation', (event) => {
-      const alpha = THREE.MathUtils.degToRad(event.alpha  || 0);
-      const beta  = THREE.MathUtils.degToRad(event.beta   || 0);
-      const gamma = THREE.MathUtils.degToRad(event.gamma  || 0);
+      // 빛
+      const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
+      scene.add(light);
 
-      euler.set(beta, alpha, -gamma, 'YXZ');
-      quaternion.setFromEuler(euler);
+      // 오브젝트: 클릭하면 배치할 큐브
+      const geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+      const material = new THREE.MeshStandardMaterial({ color: 0xff0000 });
+      const cube = new THREE.Mesh(geometry, material);
 
-      quaternion.multiply(worldTransform);
-      quaternion.multiply(screenTransform);
+      // 바닥 감지용 reticle (조준선)
+      const ringGeo = new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2);
+      const ringMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
+      reticle = new THREE.Mesh(ringGeo, ringMat);
+      reticle.matrixAutoUpdate = false;
+      reticle.visible = false;
+      scene.add(reticle);
 
-      camera.quaternion.copy(quaternion);
-    });
-
-    // 🧭 위도/경도를 거리(m)로 변환하는 함수
-    function gpsToMeter(lat1, lon1, lat2, lon2) {
-      const R = 6378137;
-      const dLat = THREE.MathUtils.degToRad(lat2 - lat1);
-      const dLon = THREE.MathUtils.degToRad(lon2 - lon1);
-      const a = Math.sin(dLat/2) ** 2 +
-                Math.cos(THREE.MathUtils.degToRad(lat1)) *
-                Math.cos(THREE.MathUtils.degToRad(lat2)) *
-                Math.sin(dLon/2) ** 2;
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      return R * c;
-    }
-
-    // 7) Geolocation 기반 위치 추적
-    let startLatitude = null;
-    let startLongitude = null;
-    let startAltitude = null;
-
-    if ('geolocation' in navigator) {
-      const watchId = navigator.geolocation.watchPosition(
-        position => {
-          const { latitude, longitude, altitude, accuracy } = position.coords;
-
-          // 정확도 기준으로 초기 위치 설정
-          if (startLongitude == null && accuracy < 10) {
-            startLatitude = latitude;
-            startLongitude = longitude;
-            startAltitude = altitude;
-            console.log('기준 위치 설정됨:', [ startLatitude, startLongitude, startAltitude ]);
-          }
-
-          let temp = [latitude, longitude, altitude].map((e) => { return (e * 100).toFixed(1) });
-          console.log(
-            `위도: ${temp[0]}`,
-            `경도: ${temp[1]}`,
-            `고도: ${temp[2]}`,
-            `정확도: ${accuracy}m`
-          );
-
-          if (startLatitude != null && startLongitude != null) {
-            const dx = gpsToMeter(startLatitude, startLongitude, latitude, startLongitude);
-            const dz = gpsToMeter(startLatitude, startLongitude, startLatitude, longitude);
-
-            // 너무 작은 흔들림은 무시
-            if (Math.abs(dx) > 1.5 || Math.abs(dz) > 1.5) {
-              const offsetX = (latitude < startLatitude) ? -dx : dx;
-              const offsetZ = (longitude < startLongitude) ? -dz : dz;
-
-              // 이동값 줄여서 적용 (감도 조정)
-              camera.position.set(offsetX * 0.1, 1.6, offsetZ * 0.1);
-            }
-          }
-        },
-        error => {
-          console.error('위치 정보를 가져오는 중 오류 발생:', error);
-        },
-        {
-          enableHighAccuracy: true,
-          maximumAge: 1000,
-          timeout: 5000
+      // hit-test용 컨트롤러
+      controller = renderer.xr.getController(0);
+      controller.addEventListener('select', () => {
+        if (reticle.visible) {
+          const clone = cube.clone();
+          clone.position.setFromMatrixPosition(reticle.matrix);
+          scene.add(clone);
         }
-      );
-    } else {
-      console.warn('이 브라우저는 Geolocation API를 지원하지 않습니다.');
+      });
+      scene.add(controller);
+
+      // AR 버튼 생성
+      document.body.appendChild(ARButton.createButton(renderer, {
+        requiredFeatures: ['hit-test']
+      }));
+
+      renderer.setAnimationLoop(render);
     }
 
-    // 8) 렌더 루프
-    function animate() {
-      requestAnimationFrame(animate);
+    let hitTestSource = null;
+    let localSpace = null;
+
+    function render(timestamp, frame) {
+      if (frame) {
+        const refSpace = renderer.xr.getReferenceSpace();
+        const session = renderer.xr.getSession();
+
+        if (hitTestSource == null) {
+          session.requestReferenceSpace('viewer').then(space => {
+            localSpace = space;
+            session.requestHitTestSource({ space }).then(source => {
+              hitTestSource = source;
+            });
+          });
+
+          session.addEventListener('end', () => {
+            hitTestSource = null;
+            localSpace = null;
+          });
+        }
+
+        if (hitTestSource && localSpace) {
+          const hitTestResults = frame.getHitTestResults(hitTestSource);
+          if (hitTestResults.length > 0) {
+            const pose = hitTestResults[0].getPose(refSpace);
+            reticle.visible = true;
+            reticle.matrix.fromArray(pose.transform.matrix);
+          } else {
+            reticle.visible = false;
+          }
+        }
+      }
+
       renderer.render(scene, camera);
     }
-    animate();
   </script>
 </body>
 </html>
