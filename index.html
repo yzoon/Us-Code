@@ -69,7 +69,15 @@
 
       camera.quaternion.copy(quaternion);
     });
+    let accHistory = [];
+    const HISTORY_SIZE = 5;
 
+    function getSmoothedProjection(proj) {
+      accHistory.push(proj);
+      if (accHistory.length > HISTORY_SIZE) accHistory.shift();
+      const avg = accHistory.reduce((sum, v) => sum + v, 0) / accHistory.length;
+      return avg;
+    }
     // ─────────────────────────────
     // PDR(걸음수 감지 + 자이로 방향) 적용
     const STEP_THRESHOLD    = 0.5;    // 가속도 피크 임계값 (m/s²)
@@ -78,10 +86,8 @@
     let lastY       = 0;
     let lastStepTs  = 0;
 
-    // 2) 전방 월드 벡터 계산 (기존 quaternion 기반 → camera.quaternion 사용)
-    const forwardWorld = new THREE.Vector3(0, 0, -1)
-      .applyQuaternion(camera.quaternion)
-      .normalize();
+    // (기존에 선언해 둔) 전진 로컬 벡터
+    const forwardLocal = new THREE.Vector3(0, 0, -1);
 
     window.addEventListener('devicemotion', ev => {
       const now = ev.timeStamp;
@@ -100,7 +106,8 @@
         .normalize();
 
       // 3) 가속도 벡터를 전방 벡터에 투영한 값(스칼라)
-      const proj = accWorld.dot(forwardWorld);
+      const projRaw = accWorld.dot(forwardWorld);
+      const proj = getSmoothedProjection(projRaw);
 
       // 4) 임계치 검사 후, proj의 부호(+)면 전진, (–)면 후진
       if (Math.abs(proj) > STEP_THRESHOLD && (now - lastStepTs) > MIN_STEP_INTERVAL) {
