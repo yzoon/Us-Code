@@ -72,14 +72,16 @@
 
     // ─────────────────────────────
     // PDR(걸음수 감지 + 자이로 방향) 적용
-    const STEP_THRESHOLD    = 1.2;    // 가속도 피크 임계값 (m/s²)
-    const MIN_STEP_INTERVAL = 300;    // ms
-    const STEP_LENGTH       = 0.7;    // m, 보폭
+    const STEP_THRESHOLD    = 0.5;    // 가속도 피크 임계값 (m/s²)
+    const MIN_STEP_INTERVAL = 100;    // ms
+    const STEP_LENGTH       = 0.5;    // m, 보폭
     let lastY       = 0;
     let lastStepTs  = 0;
 
-    // (기존에 선언해 둔) 전진 로컬 벡터
-    const forwardLocal = new THREE.Vector3(0, 0, -1);
+    // 2) 전방 월드 벡터 계산 (기존 quaternion 기반 → camera.quaternion 사용)
+    const forwardWorld = new THREE.Vector3(0, 0, -1)
+      .applyQuaternion(camera.quaternion)
+      .normalize();
 
     window.addEventListener('devicemotion', ev => {
       const now = ev.timeStamp;
@@ -112,41 +114,41 @@
 
     // ─────────────────────────────
 
-    // 1. 회전: 오일러 순서 및 쿼터니언 스무딩
-    let smoothedQuat = new THREE.Quaternion();
-    let targetQuat   = new THREE.Quaternion();
-    const SMOOTHING_FACTOR_ROT = 0.3;
-
-    window.addEventListener('deviceorientation', (event) => {
-      const alpha = THREE.MathUtils.degToRad(event.alpha || 0); // Z
-      const beta  = THREE.MathUtils.degToRad(event.beta  || 0); // X
-      const gamma = THREE.MathUtils.degToRad(event.gamma || 0); // Y
-
-      // 오일러 순서 → ZXY로 변경해 롤 안정화 시도
-      const euler = new THREE.Euler(beta, gamma, alpha, 'ZXY');
-      targetQuat.setFromEuler(euler)
-                .multiply(worldTransform)
-                .multiply(screenTransform);
-
-      // 쿼터니언 보간 (부드러운 회전)
-      smoothedQuat.slerp(targetQuat, SMOOTHING_FACTOR_ROT);
-      camera.quaternion.copy(smoothedQuat);
-    });
-
-    // 2. 위치(PDR + Geo) 스무딩
-    let fusedPosition = new THREE.Vector3();    // 융합 위치
-    let displayPosition = new THREE.Vector3();  // 실제 카메라 위치
-    const SMOOTHING_FACTOR_POS = 0.4;
-
-    function updateCameraPosition() {
-      displayPosition.lerp(fusedPosition, SMOOTHING_FACTOR_POS);
-      camera.position.copy(displayPosition);
+    // Geolocation API (원본 그대로)
+    let startLatitude = null;
+    let startLongitude = null;
+    let startAltitude = null;
+    if ('geolocation' in navigator) {
+      const watchId = navigator.geolocation.watchPosition(
+        position => {
+          const { latitude, longitude, altitude, accuracy } = position.coords;
+          if (startLongitude == null) {
+            startLatitude  = latitude;
+            startLongitude = longitude;
+            startAltitude  = altitude;
+          }
+          // console.log(
+          //   위도: ${latitude},
+          //   경도: ${longitude},
+          //   고도: ${altitude},
+          //   정확도: ${accuracy}m
+          // );
+        },
+        error => console.error('위치 정보를 가져오는 중 오류 발생:', error),
+        {
+          enableHighAccuracy: true,
+          maximumAge: 1000,
+          timeout: 5000
+        }
+      );
+      // navigator.geolocation.clearWatch(watchId);
+    } else {
+      console.warn('이 브라우저는 Geolocation API를 지원하지 않습니다.');
     }
 
     // 7) 렌더 루프
     function animate() {
       requestAnimationFrame(animate);
-      updateCameraPosition(); // ← 여기서 부드럽게 위치 이동
       renderer.render(scene, camera);
     }
     animate();
