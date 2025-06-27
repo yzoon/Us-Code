@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>WebXR AR Demo</title>
+    <title>WebXR Hit Test Demo</title>
     <style>
       body { margin: 0; overflow: hidden; }
       canvas { display: block; }
@@ -13,43 +13,93 @@
       import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
       import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
 
-      let camera, scene, renderer, controller;
+      let camera, scene, renderer;
+      let reticle, controller;
+      let hitTestSource = null;
+      let hitTestSourceRequested = false;
 
       init();
 
       function init() {
         scene = new THREE.Scene();
-        scene.background = null; // 카메라 피드 사용
+        scene.background = null;
 
-        camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+        camera = new THREE.PerspectiveCamera();
 
         renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setPixelRatio(window.devicePixelRatio);
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.xr.enabled = true;
-        renderer.setClearColor(0x000000, 0); // 배경 투명하게
         document.body.appendChild(renderer.domElement);
 
-        document.body.appendChild(ARButton.createButton(renderer, { optionalFeatures: ['hit-test'] }));
+        document.body.appendChild(
+          ARButton.createButton(renderer, {
+            requiredFeatures: ['hit-test']
+          })
+        );
 
         const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
         scene.add(light);
 
-        const geometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
-        const material = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
-        const cube = new THREE.Mesh(geometry, material);
-        cube.position.set(0, 0, -0.5);
-        scene.add(cube);
+        // Reticle (바닥 위치 표시용)
+        const ringGeometry = new THREE.RingGeometry(0.07, 0.09, 32).rotateX(-Math.PI / 2);
+        const ringMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+        reticle = new THREE.Mesh(ringGeometry, ringMaterial);
+        reticle.matrixAutoUpdate = false;
+        reticle.visible = false;
+        scene.add(reticle);
 
+        // 컨트롤러 → 클릭 시 오브젝트 생성
         controller = renderer.xr.getController(0);
         controller.addEventListener('select', () => {
-          cube.material.color.set(Math.random() * 0xffffff);
+          if (reticle.visible) {
+            const geometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
+            const material = new THREE.MeshPhongMaterial({ color: Math.random() * 0xffffff });
+            const cube = new THREE.Mesh(geometry, material);
+            cube.position.setFromMatrixPosition(reticle.matrix);
+            scene.add(cube);
+          }
         });
         scene.add(controller);
 
-        renderer.setAnimationLoop(() => {
-          renderer.render(scene, camera);
-        });
+        renderer.setAnimationLoop(render);
+      }
+
+      function render(timestamp, frame) {
+        if (frame) {
+          const referenceSpace = renderer.xr.getReferenceSpace();
+          const session = renderer.xr.getSession();
+
+          if (!hitTestSourceRequested) {
+            session.requestReferenceSpace('viewer').then((refSpace) => {
+              session.requestHitTestSource({ space: refSpace }).then((source) => {
+                hitTestSource = source;
+              });
+            });
+
+            session.addEventListener('end', () => {
+              hitTestSourceRequested = false;
+              hitTestSource = null;
+            });
+
+            hitTestSourceRequested = true;
+          }
+
+          if (hitTestSource) {
+            const hitTestResults = frame.getHitTestResults(hitTestSource);
+
+            if (hitTestResults.length > 0) {
+              const hit = hitTestResults[0];
+              const pose = hit.getPose(referenceSpace);
+              reticle.visible = true;
+              reticle.matrix.fromArray(pose.transform.matrix);
+            } else {
+              reticle.visible = false;
+            }
+          }
+        }
+
+        renderer.render(scene, camera);
       }
     </script>
   </body>
