@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>GPS AR - 10m 범위 제한</title>
+    <title>GPS AR - 1m 범위 제한</title>
     <style>
       body { margin: 0; overflow: hidden; }
       video, canvas {
@@ -56,7 +56,7 @@
           const distance = getDistance(userLat, userLng, targetLat, targetLng);
           console.log(`📍 거리: ${distance.toFixed(2)}m`);
 
-          if (distance <= 10) {
+          if (distance <= 1) {
             cube.visible = true;
           } else {
             cube.visible = false;
