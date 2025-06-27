@@ -30,7 +30,7 @@
         renderer.setClearColor(0x000000, 0); // 배경 투명하게
         document.body.appendChild(renderer.domElement);
 
-        document.body.appendChild(ARButton.createButton(renderer, { requiredFeatures: ['hit-test'] }));
+        document.body.appendChild(ARButton.createButton(renderer, { optionalFeatures: ['hit-test'] }));
 
         const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
         scene.add(light);
