@@ -76,7 +76,7 @@
           const distance = getDistance(userLat, userLng, targetLat, targetLng);
           console.log(`📍 현재 거리: ${distance.toFixed(2)}m`);
 
-          if (distance <= 1) {
+          if (distance <= 10) {
             cube.visible = true;
           } else {
             cube.visible = false;
