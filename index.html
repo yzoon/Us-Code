@@ -47,38 +47,41 @@
       // 컨트롤러 설정
       controller = renderer.xr.getController(0);
       controller.addEventListener('select', () => {
-        if (reticle.visible) {
-          // 1) reticle 위치 가져오기
-          const reticlePosition = new THREE.Vector3();
-          reticle.matrix.decompose(reticlePosition, new THREE.Quaternion(), new THREE.Vector3());
+      if (reticle.visible) {
+        // 1) 삭제 기준: 사용자(카메라) 위치
+        const cameraPosition = new THREE.Vector3();
+        camera.getWorldPosition(cameraPosition);
 
-          // 2) 1.5m 이내 큐브 삭제
-          const removeList = [];
-          scene.traverse(obj => {
-            if (obj.isMesh && obj.geometry.type === 'BoxGeometry') {
-              const objPosition = new THREE.Vector3();
-              obj.getWorldPosition(objPosition);
-              const distance = reticlePosition.distanceTo(objPosition);
-              if (distance < 1.5) {
-                removeList.push(obj);
-              }
+        // 2) 큐브 삭제 (카메라 기준 1.5m 이내)
+        const removeList = [];
+        scene.traverse(obj => {
+          if (obj.isMesh && obj.geometry.type === 'BoxGeometry') {
+            const objPosition = new THREE.Vector3();
+            obj.getWorldPosition(objPosition);
+            const distance = cameraPosition.distanceTo(objPosition);
+            if (distance < 1.5) {
+              removeList.push(obj);
             }
-          });
-          removeList.forEach(obj => {
-            scene.remove(obj);
-            obj.geometry.dispose();
-            obj.material.dispose();
-          });
+          }
+        });
+        removeList.forEach(obj => {
+          scene.remove(obj);
+          obj.geometry.dispose();
+          obj.material.dispose();
+        });
 
-          // 3) 새로운 큐브 배치
-          const cube = new THREE.Mesh(
-            new THREE.BoxGeometry(0.2, 0.2, 0.2),
-            new THREE.MeshStandardMaterial({ color: 0xff0000 })
-          );
-          cube.position.copy(reticlePosition);
-          scene.add(cube);
-        }
-      });
+        // 3) 큐브 추가 (reticle 위치 기준)
+        const reticlePosition = new THREE.Vector3();
+        reticle.matrix.decompose(reticlePosition, new THREE.Quaternion(), new THREE.Vector3());
+
+        const cube = new THREE.Mesh(
+          new THREE.BoxGeometry(0.2, 0.2, 0.2),
+          new THREE.MeshStandardMaterial({ color: 0xff0000 })
+        );
+        cube.position.copy(reticlePosition);
+        scene.add(cube);
+      }
+    });
       scene.add(controller);
 
       // AR 버튼 삽입
