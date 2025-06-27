@@ -73,7 +73,7 @@
 
     // 🧭 위도/경도를 거리(m)로 변환하는 함수
     function gpsToMeter(lat1, lon1, lat2, lon2) {
-      const R = 6378137; // 지구 반지름 in meters
+      const R = 6378137;
       const dLat = THREE.MathUtils.degToRad(lat2 - lat1);
       const dLon = THREE.MathUtils.degToRad(lon2 - lon1);
       const a = Math.sin(dLat/2) ** 2 +
@@ -94,11 +94,12 @@
         position => {
           const { latitude, longitude, altitude, accuracy } = position.coords;
 
-          if (startLongitude == null) {
+          // 정확도 기준으로 초기 위치 설정
+          if (startLongitude == null && accuracy < 10) {
             startLatitude = latitude;
             startLongitude = longitude;
             startAltitude = altitude;
-            console.log([ startLatitude, startLongitude, startAltitude ]);
+            console.log('기준 위치 설정됨:', [ startLatitude, startLongitude, startAltitude ]);
           }
 
           let temp = [latitude, longitude, altitude].map((e) => { return (e * 100).toFixed(1) });
@@ -109,13 +110,18 @@
             `정확도: ${accuracy}m`
           );
 
-          // 🌍 위치 기반 카메라 이동
           if (startLatitude != null && startLongitude != null) {
             const dx = gpsToMeter(startLatitude, startLongitude, latitude, startLongitude);
             const dz = gpsToMeter(startLatitude, startLongitude, startLatitude, longitude);
-            const offsetX = (latitude < startLatitude) ? -dx : dx;
-            const offsetZ = (longitude < startLongitude) ? -dz : dz;
-            camera.position.set(offsetX, 1.6, offsetZ);
+
+            // 너무 작은 흔들림은 무시
+            if (Math.abs(dx) > 1.5 || Math.abs(dz) > 1.5) {
+              const offsetX = (latitude < startLatitude) ? -dx : dx;
+              const offsetZ = (longitude < startLongitude) ? -dz : dz;
+
+              // 이동값 줄여서 적용 (감도 조정)
+              camera.position.set(offsetX * 0.1, 1.6, offsetZ * 0.1);
+            }
           }
         },
         error => {
