@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>GPS AR - 내 주변 1m 타겟</title>
+    <title>Directional GPS AR</title>
     <style>
       body { margin: 0; overflow: hidden; }
       video, canvas {
@@ -18,72 +18,26 @@
     <script type="module">
       import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
 
-      let targetLat = null;
-      let targetLng = null;
-
-      async function startCamera() {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-        document.getElementById('camera').srcObject = stream;
-      }
+      let userLat = null, userLng = null, userHeading = 0;
+      let targetLat = null, targetLng = null;
 
       const scene = new THREE.Scene();
       const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-      camera.position.z = 2;
+      camera.position.set(0, 0, 0);
 
       const renderer = new THREE.WebGLRenderer({ alpha: true });
       renderer.setSize(window.innerWidth, window.innerHeight);
       document.body.appendChild(renderer.domElement);
 
       const geometry = new THREE.BoxGeometry(1, 1, 1);
-      const material = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+      const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
       const cube = new THREE.Mesh(geometry, material);
-      cube.visible = false;
       scene.add(cube);
+      cube.visible = false;
 
-      function animate() {
-        requestAnimationFrame(animate);
-        cube.rotation.x += 0.01;
-        cube.rotation.y += 0.01;
-        renderer.render(scene, camera);
-      }
-
-      function initTargetNearUser() {
-        navigator.geolocation.getCurrentPosition((position) => {
-          const userLat = position.coords.latitude;
-          const userLng = position.coords.longitude;
-
-          // 1m ≈ 0.000009 degrees (위도 기준)
-          const offset = 0.000009;
-          const randomLatOffset = (Math.random() - 0.5) * 2 * offset;
-          const randomLngOffset = (Math.random() - 0.5) * 2 * offset;
-
-          targetLat = userLat + randomLatOffset;
-          targetLng = userLng + randomLngOffset;
-
-          console.log("🎯 타겟 좌표:", targetLat, targetLng);
-        }, (err) => {
-          console.error("GPS 초기화 실패:", err);
-        });
-      }
-
-      function checkPosition() {
-        if (!targetLat || !targetLng) return;
-
-        navigator.geolocation.getCurrentPosition((position) => {
-          const userLat = position.coords.latitude;
-          const userLng = position.coords.longitude;
-
-          const distance = getDistance(userLat, userLng, targetLat, targetLng);
-          console.log(`📍 현재 거리: ${distance.toFixed(2)}m`);
-
-          if (distance <= 10) {
-            cube.visible = true;
-          } else {
-            cube.visible = false;
-          }
-        }, (err) => {
-          console.error("GPS 에러:", err);
-        });
+      async function startCamera() {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        document.getElementById('camera').srcObject = stream;
       }
 
       function getDistance(lat1, lon1, lat2, lon2) {
@@ -92,19 +46,71 @@
         const φ2 = lat2 * Math.PI / 180;
         const Δφ = (lat2 - lat1) * Math.PI / 180;
         const Δλ = (lon2 - lon1) * Math.PI / 180;
-
-        const a = Math.sin(Δφ / 2) ** 2 +
-                  Math.cos(φ1) * Math.cos(φ2) *
-                  Math.sin(Δλ / 2) ** 2;
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
+        const a = Math.sin(Δφ/2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) ** 2;
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
         return R * c;
+      }
+
+      function getBearing(lat1, lon1, lat2, lon2) {
+        const φ1 = lat1 * Math.PI / 180;
+        const φ2 = lat2 * Math.PI / 180;
+        const λ1 = lon1 * Math.PI / 180;
+        const λ2 = lon2 * Math.PI / 180;
+        const y = Math.sin(λ2 - λ1) * Math.cos(φ2);
+        const x = Math.cos(φ1) * Math.sin(φ2) -
+                  Math.sin(φ1) * Math.cos(φ2) * Math.cos(λ2 - λ1);
+        const θ = Math.atan2(y, x);
+        return (θ * 180 / Math.PI + 360) % 360;
+      }
+
+      function updateCubePosition() {
+        if (userLat === null || userLng === null || targetLat === null || targetLng === null) return;
+
+        const distance = getDistance(userLat, userLng, targetLat, targetLng);
+        const bearing = getBearing(userLat, userLng, targetLat, targetLng);
+
+        const relativeBearing = bearing - userHeading;
+        const angleRad = relativeBearing * Math.PI / 180;
+
+        const x = Math.sin(angleRad) * distance * 0.01;
+        const z = -Math.cos(angleRad) * distance * 0.01;
+
+        cube.position.set(x, 0, z);
+        cube.visible = distance < 20;
+      }
+
+      navigator.geolocation.getCurrentPosition((pos) => {
+        userLat = pos.coords.latitude;
+        userLng = pos.coords.longitude;
+
+        const offset = 0.000009;
+        targetLat = userLat + (Math.random() - 0.5) * 2 * offset;
+        targetLng = userLng + (Math.random() - 0.5) * 2 * offset;
+
+        console.log("🎯 타겟 위치:", targetLat, targetLng);
+      });
+
+      window.addEventListener("deviceorientationabsolute", (event) => {
+        if (event.absolute && event.alpha !== null) {
+          userHeading = 360 - event.alpha;
+        }
+      }, true);
+
+      setInterval(() => {
+        navigator.geolocation.getCurrentPosition((pos) => {
+          userLat = pos.coords.latitude;
+          userLng = pos.coords.longitude;
+        });
+      }, 2000);
+
+      function animate() {
+        requestAnimationFrame(animate);
+        updateCubePosition();
+        renderer.render(scene, camera);
       }
 
       startCamera();
       animate();
-      initTargetNearUser();
-      setInterval(checkPosition, 3000);
     </script>
   </body>
 </html>
