@@ -121,7 +121,7 @@
       setInterval(() => {
         const cubes = scene.children.filter(obj => obj.isMesh && obj.geometry.type === 'BoxGeometry');
         if (cubes.length >= 3) return;
-        if (Math.random() < 0.05) {
+        if (Math.random() < 0.5) {
           spawnRandomCubeNearUser();
         }
       }, 1000);
