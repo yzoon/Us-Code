@@ -1,116 +1,153 @@
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>WebXR AR Hit Test</title>
-    <style>
-      body { margin: 0; overflow: hidden; }
-      canvas { display: block; }
-      #info {
-        position: absolute;
-        top: 0; left: 0;
-        width: 100%;
-        padding: 0.5em;
-        background: rgba(0,0,0,0.5);
-        color: white;
-        font-family: sans-serif;
-        z-index: 1;
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Three.js Gyro-Controlled Camera with PDR</title>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    canvas { display: block; }
+  </style>
+</head>
+<body>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.154.0/build/three.min.js"></script>
+  <script>
+    // 1) 씬, 카메라, 렌더러 세팅
+    const scene    = new THREE.Scene();
+    const camera   = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 1000);
+    camera.position.set(0, 1.6, 0);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(innerWidth, innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    // 2) 예시용 큐브
+    const cube = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshStandardMaterial({ color: 0x00ff00 })
+    );
+    cube.position.set(0, 1.6, -5);
+    scene.add(cube);
+
+    // 3) 조명
+    scene.add(new THREE.AmbientLight(0x404040));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+    dirLight.position.set(5, 10, 7.5);
+    scene.add(dirLight);
+
+    // 4) 리사이즈 대응
+    window.addEventListener('resize', () => {
+      camera.aspect = innerWidth / innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
+
+    // 5) 회전 적용용 변수들
+    const euler           = new THREE.Euler();
+    const quaternion      = new THREE.Quaternion();
+    const worldTransform  = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5));
+    const screenTransform = new THREE.Quaternion();
+    function updateScreenTransform(){
+      const orient = window.orientation || 0;
+      screenTransform.setFromAxisAngle(
+        new THREE.Vector3(0, 0, 1),
+        -orient * THREE.MathUtils.DEG2RAD
+      );
+    }
+    window.addEventListener('orientationchange', updateScreenTransform);
+    updateScreenTransform();
+
+    // 6) DeviceOrientation 이벤트 수신 및 카메라 회전 적용
+    window.addEventListener('deviceorientation', (event) => {
+      const alpha = THREE.MathUtils.degToRad(event.alpha  || 0);
+      const beta  = THREE.MathUtils.degToRad(event.beta   || 0);
+      const gamma = THREE.MathUtils.degToRad(event.gamma  || 0);
+
+      euler.set(beta, alpha, -gamma, 'YXZ');
+      quaternion.setFromEuler(euler)
+                .multiply(worldTransform)
+                .multiply(screenTransform);
+
+      camera.quaternion.copy(quaternion);
+    });
+
+    // ─────────────────────────────
+    // PDR(걸음수 감지 + 자이로 방향) 적용
+    const STEP_THRESHOLD    = 0.5;    // 가속도 피크 임계값 (m/s²)
+    const MIN_STEP_INTERVAL = 100;    // ms
+    const STEP_LENGTH       = 0.5;    // m, 보폭
+    let lastY       = 0;
+    let lastStepTs  = 0;
+
+    // (기존에 선언해 둔) 전진 로컬 벡터
+    const forwardLocal = new THREE.Vector3(0, 0, -1);
+
+    window.addEventListener('devicemotion', ev => {
+      const now = ev.timeStamp;
+      // 중력 제외 가속도가 있으면 그걸, 없으면 포함 가속도 사용
+      const acc = ev.acceleration || ev.accelerationIncludingGravity;
+      if (!acc) return;
+
+      // 1) 센서 가속도(기기 로컬) → 월드 좌표로 변환
+      const accWorld = new THREE.Vector3(acc.x, acc.y, acc.z)
+        .applyQuaternion(quaternion);
+
+      // 2) 전방 월드 벡터 계산
+      const forwardWorld = forwardLocal
+        .clone()
+        .applyQuaternion(quaternion)
+        .normalize();
+
+      // 3) 가속도 벡터를 전방 벡터에 투영한 값(스칼라)
+      const proj = accWorld.dot(forwardWorld);
+
+      // 4) 임계치 검사 후, proj의 부호(+)면 전진, (–)면 후진
+      if (Math.abs(proj) > STEP_THRESHOLD && (now - lastStepTs) > MIN_STEP_INTERVAL) {
+        lastStepTs = now;
+        camera.position.addScaledVector(
+          forwardWorld,
+          STEP_LENGTH * Math.sign(proj)
+        );
       }
-    </style>
-  </head>
-  <body>
-    <div id="info">📱 AR 모드에서 화면을 터치하면 박스가 생성됩니다.</div>
-    <script type="module">
-      import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
-      import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
+    });
 
-      let camera, scene, renderer;
-      let controller;
-      let reticle;
-      let hitTestSource = null;
-      let hitTestSourceRequested = false;
+    // ─────────────────────────────
 
-      init();
-      animate();
+    let refECEF = null; // 기준 위치 (절대 위치)
+    let cameraOffset = new THREE.Vector3(0, 0, 0); // 씬 내 카메라 상대 위치
 
-      function init() {
-        scene = new THREE.Scene();
+    function setCameraFromGeolocation(lat, lon, alt) {
+    const currentECEF = wgs84ToECEF(lat, lon, alt || 0);
 
-        camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+    if (!refECEF) {
+      refECEF = currentECEF.clone(); // 기준점 저장
+    }
 
-        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-        renderer.setPixelRatio(window.devicePixelRatio);
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.xr.enabled = true;
-        document.body.appendChild(renderer.domElement);
+    // 기준점 대비 상대 위치 계산
+    const relative = currentECEF.clone().sub(refECEF);
 
-        document.body.appendChild(ARButton.createButton(renderer, {
-          requiredFeatures: ['hit-test']
-        }));
-
-        const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
-        light.position.set(0.5, 1, 0.25);
-        scene.add(light);
-
-        const geometry = new THREE.RingGeometry(0.07, 0.09, 32).rotateX(-Math.PI / 2);
-        const material = new THREE.MeshBasicMaterial({ color: 0x00ffff });
-        reticle = new THREE.Mesh(geometry, material);
-        reticle.matrixAutoUpdate = false;
-        reticle.visible = false;
-        scene.add(reticle);
-
-        controller = renderer.xr.getController(0);
-        controller.addEventListener('select', () => {
-          if (reticle.visible) {
-            const box = new THREE.Mesh(
-              new THREE.BoxGeometry(0.1, 0.1, 0.1),
-              new THREE.MeshPhongMaterial({ color: 0xff0000 })
-            );
-            box.position.setFromMatrixPosition(reticle.matrix);
-            box.quaternion.setFromRotationMatrix(reticle.matrix);
-            scene.add(box);
-          }
-        });
-        scene.add(controller);
+    // 상대 위치를 씬 좌표로 사용 (단위는 meter)
+    camera.position.set(relative.x, relative.y, relative.z);
+    cameraOffset.copy(camera.position); // 이후 PDR 이동에 이 offset 기준 사용 가능
+    }
+    navigator.geolocation.watchPosition(
+      position => {
+        const { latitude, longitude, altitude } = position.coords;
+        setCameraFromGeolocation(latitude, longitude, altitude);
+      },
+      error => console.error(error),
+      {
+        enableHighAccuracy: true,
+        maximumAge: 1000,
+        timeout: 5000
       }
+    );
 
-      function animate() {
-        renderer.setAnimationLoop(render);
-      }
-
-      function render(timestamp, frame) {
-        if (frame) {
-          const referenceSpace = renderer.xr.getReferenceSpace();
-          const session = renderer.xr.getSession();
-
-          if (!hitTestSourceRequested) {
-            session.requestReferenceSpace('viewer').then((refSpace) => {
-              session.requestHitTestSource({ space: refSpace }).then((source) => {
-                hitTestSource = source;
-              });
-            });
-            session.addEventListener('end', () => {
-              hitTestSourceRequested = false;
-              hitTestSource = null;
-            });
-            hitTestSourceRequested = true;
-          }
-
-          if (hitTestSource) {
-            const hitTestResults = frame.getHitTestResults(hitTestSource);
-            if (hitTestResults.length > 0) {
-              const hit = hitTestResults[0];
-              const pose = hit.getPose(referenceSpace);
-              reticle.visible = true;
-              reticle.matrix.fromArray(pose.transform.matrix);
-            } else {
-              reticle.visible = false;
-            }
-          }
-        }
-
-        renderer.render(scene, camera);
-      }
-    </script>
-  </body>
+    // 7) 렌더 루프
+    function animate() {
+      requestAnimationFrame(animate);
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
 </html>
