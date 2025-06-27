@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>WebXR AR 큐브 삭제 및 배치</title>
+  <title>WebXR AR - 큐브 생성 및 삭제</title>
   <style>
     body { margin: 0; overflow: hidden; }
     canvas { display: block; }
@@ -18,7 +18,6 @@
 
     let camera, scene, renderer;
     let controller;
-    let reticle;
 
     init();
 
@@ -36,62 +35,57 @@
       const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
       scene.add(light);
 
-      // 바닥 조준선
-      const ringGeo = new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2);
-      const ringMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
-      reticle = new THREE.Mesh(ringGeo, ringMat);
-      reticle.matrixAutoUpdate = false;
-      reticle.visible = false;
-      scene.add(reticle);
-
-      // 컨트롤러 설정
+      // 컨트롤러
       controller = renderer.xr.getController(0);
       controller.addEventListener('select', () => {
-      // 1) 사용자 위치 (카메라 기준)
-      const cameraPosition = new THREE.Vector3();
-      camera.getWorldPosition(cameraPosition);
+        // 사용자 위치 (카메라 기준)
+        const cameraPosition = new THREE.Vector3();
+        camera.getWorldPosition(cameraPosition);
 
-      // 2) Raycaster로 큐브 클릭 감지
-      const raycaster = new THREE.Raycaster();
-      const direction = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-      raycaster.set(cameraPosition, direction);
-  
-      const intersects = raycaster.intersectObjects(scene.children, false);
+        // 레이캐스터로 선택된 큐브 탐색
+        const raycaster = new THREE.Raycaster();
+        const direction = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+        raycaster.set(cameraPosition, direction);
 
-      for (let i = 0; i < intersects.length; i++) {
-        const hit = intersects[i].object;
+        const intersects = raycaster.intersectObjects(scene.children, false);
 
-        if (hit.geometry.type === 'BoxGeometry') {
-          const objPosition = new THREE.Vector3();
-          hit.getWorldPosition(objPosition);
-          const distance = cameraPosition.distanceTo(objPosition);
+        for (let i = 0; i < intersects.length; i++) {
+          const hit = intersects[i].object;
 
-          if (distance <= 1.5) {
-            scene.remove(hit);
-            hit.geometry.dispose();
-            hit.material.dispose();
-            console.log('삭제된 큐브 거리:', distance.toFixed(2), 'm');
-            break; // 하나만 삭제하고 종료
+          if (hit.geometry.type === 'BoxGeometry') {
+            const objPosition = new THREE.Vector3();
+            hit.getWorldPosition(objPosition);
+            const distance = cameraPosition.distanceTo(objPosition);
+
+            if (distance <= 2.0) {
+              scene.remove(hit);
+              hit.geometry.dispose();
+              hit.material.dispose();
+              console.log('삭제된 큐브 거리:', distance.toFixed(2), 'm');
+              break;
+            }
           }
         }
-      }
-    });
+      });
       scene.add(controller);
 
-      // AR 버튼 삽입
+      // AR 버튼
       document.body.appendChild(ARButton.createButton(renderer, {
         requiredFeatures: ['hit-test']
       }));
 
       renderer.setAnimationLoop(render);
-      function spawnRandomCubeNearUser() {
-      // 사용자 위치 가져오기
+
+      // 5초마다 큐브 생성
+      setInterval(spawnRandomCubeNearUser, 5000);
+    }
+
+    function spawnRandomCubeNearUser() {
       const userPos = new THREE.Vector3();
       camera.getWorldPosition(userPos);
 
-      // 반경 2m 이내 무작위 위치 구하기 (수평면 상)
       const angle = Math.random() * Math.PI * 2;
-      const radius = Math.random() * 2.0; // 0~2m
+      const radius = Math.random() * 2.0;
 
       const dx = Math.cos(angle) * radius;
       const dz = Math.sin(angle) * radius;
@@ -102,7 +96,6 @@
         userPos.z + dz
       );
 
-      // 큐브 생성
       const cube = new THREE.Mesh(
         new THREE.BoxGeometry(0.2, 0.2, 0.2),
         new THREE.MeshStandardMaterial({ color: Math.random() * 0xffffff })
@@ -111,44 +104,7 @@
       scene.add(cube);
     }
 
-    // 5초마다 큐브 생성
-    setInterval(spawnRandomCubeNearUser, 5000);
-    }
-
-    let hitTestSource = null;
-    let localSpace = null;
-
     function render(timestamp, frame) {
-      if (frame) {
-        const refSpace = renderer.xr.getReferenceSpace();
-        const session = renderer.xr.getSession();
-
-        if (hitTestSource === null) {
-          session.requestReferenceSpace('viewer').then(space => {
-            localSpace = space;
-            session.requestHitTestSource({ space }).then(source => {
-              hitTestSource = source;
-            });
-          });
-
-          session.addEventListener('end', () => {
-            hitTestSource = null;
-            localSpace = null;
-          });
-        }
-
-        if (hitTestSource && localSpace) {
-          const hitTestResults = frame.getHitTestResults(hitTestSource);
-          if (hitTestResults.length > 0) {
-            const pose = hitTestResults[0].getPose(refSpace);
-            reticle.visible = true;
-            reticle.matrix.fromArray(pose.transform.matrix);
-          } else {
-            reticle.visible = false;
-          }
-        }
-      }
-
       renderer.render(scene, camera);
     }
   </script>
