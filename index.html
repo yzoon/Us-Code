@@ -1,73 +1,65 @@
 <!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <title>WebXR AR Cube Example</title>
-  <style>
-    body { margin: 0; overflow: hidden; }
-    #info { position: absolute; top: 10px; width: 100%; text-align: center; color: white; font-family: sans-serif; z-index: 1; }
-  </style>
-</head>
-<body>
-  <div id="info">카메라 버튼을 눌러 AR 세션을 시작하세요</div>
-  <script type="module">
-    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
-    import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Camera + Three.js</title>
+    <style>
+      body { margin: 0; overflow: hidden; }
+      video {
+        position: absolute;
+        top: 0; left: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        z-index: 0;
+      }
+      canvas {
+        position: absolute;
+        top: 0; left: 0;
+        z-index: 1;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <video id="camera" autoplay playsinline muted></video>
+    <script type="module">
+      import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
 
-    let camera, scene, renderer;
+      // 1. 카메라 활성화
+      async function getMedia() {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+          document.getElementById('camera').srcObject = stream;
+        } catch (err) {
+          console.error("카메라 접근 실패:", err);
+        }
+      }
 
-    init();
-    animate();
+      getMedia(); // 호출
 
-    function init() {
-      // 씬, 카메라 세팅
-      scene = new THREE.Scene();
-      camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+      // 2. Three.js 씬 생성
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+      camera.position.z = 2;
 
-      // 환경광 추가
-      const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
-      light.position.set(0.5, 1, 0.25);
-      scene.add(light);
-
-      // 녹색 큐브 생성 (크기 20cm)
-      const geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
-      const material = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
-      const cube = new THREE.Mesh(geometry, material);
-
-      // 카메라 기준 앞쪽으로 50cm 위치
-      cube.position.set(0, 0, -0.5);
-      scene.add(cube);
-
-      // 렌더러 설정 (투명 배경 허용)
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-      renderer.setPixelRatio(window.devicePixelRatio);
+      const renderer = new THREE.WebGLRenderer({ alpha: true });
       renderer.setSize(window.innerWidth, window.innerHeight);
-      renderer.xr.enabled = true;
       document.body.appendChild(renderer.domElement);
 
-      // AR 버튼 생성: 'local' 레퍼런스 스페이스만 필수, 히트 테스트 등 옵션 추가
-      document.body.appendChild(ARButton.createButton(renderer, {
-        requiredFeatures: ['local'],
-        optionalFeatures: ['hit-test', 'dom-overlay'],
-        domOverlay: { root: document.body }
-      }));
+      const geometry = new THREE.BoxGeometry(1, 1, 1);
+      const material = new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true });
+      const cube = new THREE.Mesh(geometry, material);
+      scene.add(cube);
 
-      window.addEventListener('resize', onWindowResize);
-    }
+      function animate() {
+        requestAnimationFrame(animate);
+        cube.rotation.x += 0.01;
+        cube.rotation.y += 0.01;
+        renderer.render(scene, camera);
+      }
 
-    function onWindowResize() {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-    }
-
-    function animate() {
-      renderer.setAnimationLoop(render);
-    }
-
-    function render(timestamp, frame) {
-      renderer.render(scene, camera);
-    }
-  </script>
-</body>
+      animate();
+    </script>
+  </body>
 </html>
