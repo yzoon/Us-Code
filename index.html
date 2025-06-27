@@ -84,6 +84,35 @@
       }));
 
       renderer.setAnimationLoop(render);
+      function spawnRandomCubeNearUser() {
+      // 사용자 위치 가져오기
+      const userPos = new THREE.Vector3();
+      camera.getWorldPosition(userPos);
+
+      // 반경 2m 이내 무작위 위치 구하기 (수평면 상)
+      const angle = Math.random() * Math.PI * 2;
+      const radius = Math.random() * 2.0; // 0~2m
+
+      const dx = Math.cos(angle) * radius;
+      const dz = Math.sin(angle) * radius;
+
+      const spawnPos = new THREE.Vector3(
+        userPos.x + dx,
+        userPos.y,
+        userPos.z + dz
+      );
+
+      // 큐브 생성
+      const cube = new THREE.Mesh(
+        new THREE.BoxGeometry(0.2, 0.2, 0.2),
+        new THREE.MeshStandardMaterial({ color: Math.random() * 0xffffff })
+      );
+      cube.position.copy(spawnPos);
+      scene.add(cube);
+    }
+
+    // 5초마다 큐브 생성
+    setInterval(spawnRandomCubeNearUser, 5000);
     }
 
     let hitTestSource = null;
