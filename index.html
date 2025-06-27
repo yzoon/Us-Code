@@ -72,9 +72,9 @@
 
     // ─────────────────────────────
     // PDR(걸음수 감지 + 자이로 방향) 적용
-    const STEP_THRESHOLD    = 0.5;    // 가속도 피크 임계값 (m/s²)
-    const MIN_STEP_INTERVAL = 100;    // ms
-    const STEP_LENGTH       = 0.5;    // m, 보폭
+    const STEP_THRESHOLD    = 1.2;    // 가속도 피크 임계값 (m/s²)
+    const MIN_STEP_INTERVAL = 300;    // ms
+    const STEP_LENGTH       = 0.7;    // m, 보폭
     let lastY       = 0;
     let lastStepTs  = 0;
 
@@ -112,66 +112,41 @@
 
     // ─────────────────────────────
 
-    let refECEF = null;          // 절대 기준점
-    let fusedPosition = new THREE.Vector3(); // 융합된 위치
-    let pdrOffset = new THREE.Vector3();     // PDR 이동 누적값
+    // 1. 회전: 오일러 순서 및 쿼터니언 스무딩
+    let smoothedQuat = new THREE.Quaternion();
+    let targetQuat   = new THREE.Quaternion();
+    const SMOOTHING_FACTOR_ROT = 0.15;
 
-    // WGS84 → ECEF
-    function wgs84ToECEF(lat, lon, alt = 0) {
-      const a = 6378137.0, f = 1 / 298.257223563, e2 = f * (2 - f);
-      const radLat = THREE.MathUtils.degToRad(lat);
-      const radLon = THREE.MathUtils.degToRad(lon);
-      const cosLat = Math.cos(radLat), sinLat = Math.sin(radLat);
-      const cosLon = Math.cos(radLon), sinLon = Math.sin(radLon);
-      const N = a / Math.sqrt(1 - e2 * sinLat * sinLat);
-      const x = (N + alt) * cosLat * cosLon;
-      const y = (N + alt) * cosLat * sinLon;
-      const z = (N * (1 - e2) + alt) * sinLat;
-      return new THREE.Vector3(x, y, z);
-    }
+    window.addEventListener('deviceorientation', (event) => {
+      const alpha = THREE.MathUtils.degToRad(event.alpha || 0); // Z
+      const beta  = THREE.MathUtils.degToRad(event.beta  || 0); // X
+      const gamma = THREE.MathUtils.degToRad(event.gamma || 0); // Y
 
-    // Geolocation 업데이트
-    navigator.geolocation.watchPosition(
-      pos => {
-        const { latitude, longitude, altitude } = pos.coords;
-        const nowECEF = wgs84ToECEF(latitude, longitude, altitude || 0);
-        if (!refECEF) {
-          refECEF = nowECEF.clone();
-          fusedPosition.set(0, 0, 0); // 초기 위치 (refECEF - refECEF)
-        } else {
-          const geoOffset = nowECEF.clone().sub(refECEF);
-          const totalOffset = geoOffset.add(pdrOffset); // 융합
-          fusedPosition.copy(totalOffset);
-        }
-        camera.position.copy(fusedPosition);
-      },
-      err => console.error('Geo error:', err),
-      { enableHighAccuracy: true, maximumAge: 1000, timeout: 5000 }
-    );
+      // 오일러 순서 → ZXY로 변경해 롤 안정화 시도
+      const euler = new THREE.Euler(beta, gamma, alpha, 'ZXY');
+      targetQuat.setFromEuler(euler)
+                .multiply(worldTransform)
+                .multiply(screenTransform);
 
-    // PDR 이동
-    window.addEventListener('devicemotion', ev => {
-      const acc = ev.acceleration || ev.accelerationIncludingGravity;
-      if (!acc) return;
-
-      const now = ev.timeStamp;
-      const accVec = new THREE.Vector3(acc.x, acc.y, acc.z).applyQuaternion(quaternion);
-
-      const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(quaternion).normalize();
-      const proj = accVec.dot(forward);
-
-      if (Math.abs(proj) > STEP_THRESHOLD && (now - lastStepTs) > MIN_STEP_INTERVAL) {
-        lastStepTs = now;
-        const delta = forward.clone().multiplyScalar(STEP_LENGTH * Math.sign(proj));
-        pdrOffset.add(delta);           // PDR 오차 누적
-        fusedPosition.add(delta);       // 융합 위치도 이동
-        camera.position.copy(fusedPosition);
-      }
+      // 쿼터니언 보간 (부드러운 회전)
+      smoothedQuat.slerp(targetQuat, SMOOTHING_FACTOR_ROT);
+      camera.quaternion.copy(smoothedQuat);
     });
+
+    // 2. 위치(PDR + Geo) 스무딩
+    let fusedPosition = new THREE.Vector3();    // 융합 위치
+    let displayPosition = new THREE.Vector3();  // 실제 카메라 위치
+    const SMOOTHING_FACTOR_POS = 0.2;
+
+    function updateCameraPosition() {
+      displayPosition.lerp(fusedPosition, SMOOTHING_FACTOR_POS);
+      camera.position.copy(displayPosition);
+    }
 
     // 7) 렌더 루프
     function animate() {
       requestAnimationFrame(animate);
+      updateCameraPosition(); // ← 여기서 부드럽게 위치 이동
       renderer.render(scene, camera);
     }
     animate();
