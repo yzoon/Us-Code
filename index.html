@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Directional Moving GPS AR</title>
+    <title>Debug GPS AR</title>
     <style>
       body { margin: 0; overflow: hidden; }
       video, canvas {
@@ -23,14 +23,14 @@
 
       const scene = new THREE.Scene();
       const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-      camera.position.set(0, 0, 0);
+      camera.position.set(0, 0, 2); // 화면 앞쪽으로 보기 좋게 설정
 
       const renderer = new THREE.WebGLRenderer({ alpha: true });
       renderer.setSize(window.innerWidth, window.innerHeight);
       document.body.appendChild(renderer.domElement);
 
       const geometry = new THREE.BoxGeometry(1, 1, 1);
-      const material = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+      const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
       const cube = new THREE.Mesh(geometry, material);
       scene.add(cube);
       cube.visible = false;
@@ -68,12 +68,16 @@
 
         const distance = getDistance(userLat, userLng, targetLat, targetLng);
         const bearing = getBearing(userLat, userLng, targetLat, targetLng);
-
         const relativeBearing = bearing - userHeading;
-        const angleRad = relativeBearing * Math.PI / 180;
 
+        const angleRad = relativeBearing * Math.PI / 180;
         const x = Math.sin(angleRad) * distance * 0.05;
         const z = -Math.cos(angleRad) * distance * 0.05;
+
+        console.log("📍 내위치:", userLat, userLng);
+        console.log("🎯 타겟위치:", targetLat, targetLng);
+        console.log("📏 거리:", distance.toFixed(2), "m, 🧭 방향차:", relativeBearing.toFixed(2), "deg");
+        console.log("🧊 큐브 위치 x:", x.toFixed(2), "z:", z.toFixed(2));
 
         cube.position.set(x, 0, z);
         cube.visible = distance < 30;
@@ -87,7 +91,7 @@
         targetLat = userLat + (Math.random() - 0.5) * 2 * offset;
         targetLng = userLng + (Math.random() - 0.5) * 2 * offset;
 
-        console.log("🎯 타겟 위치:", targetLat, targetLng);
+        console.log("🎯 타겟 좌표 초기화 완료:", targetLat, targetLng);
       });
 
       window.addEventListener("deviceorientationabsolute", (event) => {
