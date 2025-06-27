@@ -47,39 +47,33 @@
       // 컨트롤러 설정
       controller = renderer.xr.getController(0);
       controller.addEventListener('select', () => {
-      if (reticle.visible) {
-        // 1) 삭제 기준: 사용자(카메라) 위치
-        const cameraPosition = new THREE.Vector3();
-        camera.getWorldPosition(cameraPosition);
+      // 1) 사용자 위치 (카메라 기준)
+      const cameraPosition = new THREE.Vector3();
+      camera.getWorldPosition(cameraPosition);
 
-        // 2) 큐브 삭제 (카메라 기준 1.5m 이내)
-        const removeList = [];
-        scene.traverse(obj => {
-          if (obj.isMesh && obj.geometry.type === 'BoxGeometry') {
-            const objPosition = new THREE.Vector3();
-            obj.getWorldPosition(objPosition);
-            const distance = cameraPosition.distanceTo(objPosition);
-            if (distance < 1.5) {
-              removeList.push(obj);
-            }
+      // 2) Raycaster로 큐브 클릭 감지
+      const raycaster = new THREE.Raycaster();
+      const direction = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+      raycaster.set(cameraPosition, direction);
+  
+      const intersects = raycaster.intersectObjects(scene.children, false);
+
+      for (let i = 0; i < intersects.length; i++) {
+        const hit = intersects[i].object;
+
+        if (hit.geometry.type === 'BoxGeometry') {
+          const objPosition = new THREE.Vector3();
+          hit.getWorldPosition(objPosition);
+          const distance = cameraPosition.distanceTo(objPosition);
+
+          if (distance <= 1.5) {
+            scene.remove(hit);
+            hit.geometry.dispose();
+            hit.material.dispose();
+            console.log('삭제된 큐브 거리:', distance.toFixed(2), 'm');
+            break; // 하나만 삭제하고 종료
           }
-        });
-        removeList.forEach(obj => {
-          scene.remove(obj);
-          obj.geometry.dispose();
-          obj.material.dispose();
-        });
-
-        // 3) 큐브 추가 (reticle 위치 기준)
-        const reticlePosition = new THREE.Vector3();
-        reticle.matrix.decompose(reticlePosition, new THREE.Quaternion(), new THREE.Vector3());
-
-        const cube = new THREE.Mesh(
-          new THREE.BoxGeometry(0.2, 0.2, 0.2),
-          new THREE.MeshStandardMaterial({ color: 0xff0000 })
-        );
-        cube.position.copy(reticlePosition);
-        scene.add(cube);
+        }
       }
     });
       scene.add(controller);
