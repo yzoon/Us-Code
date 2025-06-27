@@ -1,106 +1,73 @@
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>WebXR Hit Test Demo</title>
-    <style>
-      body { margin: 0; overflow: hidden; }
-      canvas { display: block; }
-    </style>
-  </head>
-  <body>
-    <script type="module">
-      import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
-      import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>WebXR AR Cube Example</title>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    #info { position: absolute; top: 10px; width: 100%; text-align: center; color: white; font-family: sans-serif; z-index: 1; }
+  </style>
+</head>
+<body>
+  <div id="info">카메라 버튼을 눌러 AR 세션을 시작하세요</div>
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.155.0/build/three.module.js';
+    import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.155.0/examples/jsm/webxr/ARButton.js';
 
-      let camera, scene, renderer;
-      let reticle, controller;
-      let hitTestSource = null;
-      let hitTestSourceRequested = false;
+    let camera, scene, renderer;
 
-      init();
+    init();
+    animate();
 
-      function init() {
-        scene = new THREE.Scene();
-        scene.background = null;
+    function init() {
+      // 씬, 카메라 세팅
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
 
-        camera = new THREE.PerspectiveCamera();
+      // 환경광 추가
+      const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
+      light.position.set(0.5, 1, 0.25);
+      scene.add(light);
 
-        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-        renderer.setPixelRatio(window.devicePixelRatio);
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.xr.enabled = true;
-        document.body.appendChild(renderer.domElement);
+      // 녹색 큐브 생성 (크기 20cm)
+      const geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+      const material = new THREE.MeshPhongMaterial({ color: 0x00ff00 });
+      const cube = new THREE.Mesh(geometry, material);
 
-        document.body.appendChild(
-          ARButton.createButton(renderer, {
-            requiredFeatures: ['hit-test']
-          })
-        );
+      // 카메라 기준 앞쪽으로 50cm 위치
+      cube.position.set(0, 0, -0.5);
+      scene.add(cube);
 
-        const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
-        scene.add(light);
+      // 렌더러 설정 (투명 배경 허용)
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.xr.enabled = true;
+      document.body.appendChild(renderer.domElement);
 
-        // Reticle (바닥 위치 표시용)
-        const ringGeometry = new THREE.RingGeometry(0.07, 0.09, 32).rotateX(-Math.PI / 2);
-        const ringMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
-        reticle = new THREE.Mesh(ringGeometry, ringMaterial);
-        reticle.matrixAutoUpdate = false;
-        reticle.visible = false;
-        scene.add(reticle);
+      // AR 버튼 생성: 'local' 레퍼런스 스페이스만 필수, 히트 테스트 등 옵션 추가
+      document.body.appendChild(ARButton.createButton(renderer, {
+        requiredFeatures: ['local'],
+        optionalFeatures: ['hit-test', 'dom-overlay'],
+        domOverlay: { root: document.body }
+      }));
 
-        // 컨트롤러 → 클릭 시 오브젝트 생성
-        controller = renderer.xr.getController(0);
-        controller.addEventListener('select', () => {
-          if (reticle.visible) {
-            const geometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
-            const material = new THREE.MeshPhongMaterial({ color: Math.random() * 0xffffff });
-            const cube = new THREE.Mesh(geometry, material);
-            cube.position.setFromMatrixPosition(reticle.matrix);
-            scene.add(cube);
-          }
-        });
-        scene.add(controller);
+      window.addEventListener('resize', onWindowResize);
+    }
 
-        renderer.setAnimationLoop(render);
-      }
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
 
-      function render(timestamp, frame) {
-        if (frame) {
-          const referenceSpace = renderer.xr.getReferenceSpace();
-          const session = renderer.xr.getSession();
+    function animate() {
+      renderer.setAnimationLoop(render);
+    }
 
-          if (!hitTestSourceRequested) {
-            session.requestReferenceSpace('viewer').then((refSpace) => {
-              session.requestHitTestSource({ space: refSpace }).then((source) => {
-                hitTestSource = source;
-              });
-            });
-
-            session.addEventListener('end', () => {
-              hitTestSourceRequested = false;
-              hitTestSource = null;
-            });
-
-            hitTestSourceRequested = true;
-          }
-
-          if (hitTestSource) {
-            const hitTestResults = frame.getHitTestResults(hitTestSource);
-
-            if (hitTestResults.length > 0) {
-              const hit = hitTestResults[0];
-              const pose = hit.getPose(referenceSpace);
-              reticle.visible = true;
-              reticle.matrix.fromArray(pose.transform.matrix);
-            } else {
-              reticle.visible = false;
-            }
-          }
-        }
-
-        renderer.render(scene, camera);
-      }
-    </script>
-  </body>
+    function render(timestamp, frame) {
+      renderer.render(scene, camera);
+    }
+  </script>
+</body>
 </html>
