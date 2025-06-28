@@ -254,6 +254,9 @@
     // 🌐 전역 함수 등록 (콘솔 또는 외부 UI에서 호출 가능)
     window.activateCubeSystem = activateCubeSystem;
     window.deactivateCubeSystem = deactivateCubeSystem;
+    window.addEventlistener('touchstart', () => {
+      window.activateCubeSystem();
+    })
   </script>
 </body>
 </html>
