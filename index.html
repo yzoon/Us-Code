@@ -3,82 +3,93 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>WebXR AR - 주석 포함 최종본</title>
+  <title>AR tracking</title>
   <style>
     body { margin: 0; overflow: hidden; }
     canvas { display: block; }
 
-    /* ✅ 화면 중앙 십자선 표시 */
+    /* 십자선 UI */
     #crosshair {
       position: fixed;
-      top: 50%;
-      left: 50%;
-      width: 20px;
-      height: 20px;
+      top: 50%; left: 50%;
+      width: 20px; height: 20px;
       margin-left: -10px;
       margin-top: -10px;
       z-index: 9999;
       pointer-events: none;
-      mix-blend-mode: difference; /* 배경 대비 강조 */
+      mix-blend-mode: difference;
     }
-
     #crosshair::before,
     #crosshair::after {
       content: '';
       position: absolute;
       background: white;
     }
-
     #crosshair::before {
-      top: 50%;
-      left: 0;
-      width: 100%;
-      height: 2px;
+      top: 50%; left: 0;
+      width: 100%; height: 2px;
       transform: translateY(-50%);
     }
-
     #crosshair::after {
-      top: 0;
-      left: 50%;
-      width: 2px;
-      height: 100%;
+      top: 0; left: 50%;
+      width: 2px; height: 100%;
       transform: translateX(-50%);
+    }
+
+    /* 바닥 인식 안내 문구 */
+    #message {
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      color: white;
+      font-size: 1.5rem;
+      z-index: 9999;
+      background: rgba(0,0,0,0.6);
+      padding: 12px 20px;
+      border-radius: 12px;
     }
   </style>
 </head>
 <body>
-  <!-- ✅ 십자선 DOM 추가 -->
+  <!-- 중앙 고정 UI 요소 -->
   <div id="crosshair"></div>
+  <div id="message">바닥을 인식해주세요.</div>
 
   <script type="module">
+    // Three.js와 WebXR 모듈 임포트
     import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.154.0/build/three.module.js';
     import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.154.0/examples/jsm/webxr/ARButton.js';
 
+    // 전역 상태 변수
     let camera, scene, renderer;
     let controller;
-    let groundY = null; // ✅ 바닥 고도 저장
+    let groundY = null;                 // 바닥 높이
+    let cubeSystemEnabled = false;     // 사용자가 큐브 시스템 호출했는지
+    let cubeSystemActivated = false;   // 실제 큐브 시스템 실행 여부
+    let cubeSpawnIntervalId = null;
+    let cubeCleanupIntervalId = null;
+    let point = 0;
+    const message = document.getElementById('message');
 
-    init();
+    init(); // 초기화 실행
 
     function init() {
-      // ✅ 기본 씬/카메라/렌더러 세팅
+      // Three.js 기본 구성
       scene = new THREE.Scene();
       camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
-
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.xr.enabled = true;
       document.body.appendChild(renderer.domElement);
 
-      // ✅ 조명 추가
+      // 조명 추가
       const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
       scene.add(light);
 
-      // ✅ 컨트롤러: 화면 터치 시 실행
+      // 사용자 선택 컨트롤러 설정
       controller = renderer.xr.getController(0);
       controller.addEventListener('select', () => {
-        // 1. 사용자의 현재 위치 및 시선 방향으로 광선 생성
         const cameraPosition = new THREE.Vector3();
         camera.getWorldPosition(cameraPosition);
 
@@ -86,22 +97,20 @@
         const direction = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
         raycaster.set(cameraPosition, direction);
 
-        // 2. 광선이 큐브와 부딪혔는지 확인
         const intersects = raycaster.intersectObjects(scene.children, false);
         for (let i = 0; i < intersects.length; i++) {
           const hit = intersects[i].object;
-
-          // 3. 2m 이내 BoxGeometry 큐브만 삭제
           if (hit.geometry.type === 'BoxGeometry') {
             const objPosition = new THREE.Vector3();
             hit.getWorldPosition(objPosition);
             const distance = cameraPosition.distanceTo(objPosition);
-
             if (distance <= 2.0) {
               scene.remove(hit);
               hit.geometry.dispose();
               hit.material.dispose();
-              console.log('🗑 큐브 삭제됨:', objPosition);
+
+              point++;
+              console.log('큐브 삭제됨:', objPosition);
               break;
             }
           }
@@ -109,25 +118,55 @@
       });
       scene.add(controller);
 
-      // ✅ WebXR AR 시작 버튼 생성
+      // AR 버튼 추가 (WebXR 세션 시작용)
       document.body.appendChild(ARButton.createButton(renderer, {
         requiredFeatures: ['hit-test']
       }));
 
-      // ✅ 렌더 루프 시작
-      renderer.setAnimationLoop(render);
+      renderer.setAnimationLoop(render); // 렌더 루프 설정
+    }
 
-      // ✅ 매초 5% 확률로 큐브 생성 (최대 3개 유지)
-      setInterval(() => {
+    // 사용자 근처에 큐브 생성
+    function spawnRandomCubeNearUser() {
+      if (groundY === null) return;
+
+      const userPos = new THREE.Vector3();
+      camera.getWorldPosition(userPos);
+
+      const angle = Math.random() * Math.PI * 2;
+      const radius = Math.random() * 10.0;
+      const dx = Math.cos(angle) * radius;
+      const dz = Math.sin(angle) * radius;
+
+      const spawnPos = new THREE.Vector3(userPos.x + dx, groundY, userPos.z + dz);
+
+      const cube = new THREE.Mesh(
+        new THREE.BoxGeometry(0.2, 0.2, 0.2),
+        new THREE.MeshStandardMaterial({ color: Math.random() * 0xffffff })
+      );
+      cube.position.copy(spawnPos);
+      scene.add(cube);
+      console.log('큐브 생성됨:', spawnPos);
+    }
+
+    // 큐브 시스템 실제 실행 (내부 전용)
+    function startCubeSystem() {
+      if (cubeSystemActivated) return;
+      cubeSystemActivated = true;
+      message.style.display = 'none';
+      console.log("큐브 시스템 조건 충족 → 시작됨");
+
+      // 30% 확률로 큐브 생성 (최대 3개)
+      cubeSpawnIntervalId = setInterval(() => {
         const cubes = scene.children.filter(obj => obj.isMesh && obj.geometry.type === 'BoxGeometry');
         if (cubes.length >= 3) return;
-        if (Math.random() < 0.05) {
+        if (Math.random() < 0.3) {
           spawnRandomCubeNearUser();
         }
       }, 1000);
 
-      // ✅ 매초마다 사용자로부터 20m 넘는 큐브 자동 제거
-      setInterval(() => {
+      // 사용자와 20m 이상 떨어진 큐브 제거
+      cubeCleanupIntervalId = setInterval(() => {
         const cameraPosition = new THREE.Vector3();
         camera.getWorldPosition(cameraPosition);
 
@@ -137,9 +176,7 @@
             const objPos = new THREE.Vector3();
             obj.getWorldPosition(objPos);
             const distance = cameraPosition.distanceTo(objPos);
-            if (distance > 20) {
-              toRemove.push(obj);
-            }
+            if (distance > 20) toRemove.push(obj);
           }
         });
 
@@ -147,40 +184,36 @@
           scene.remove(obj);
           obj.geometry.dispose();
           obj.material.dispose();
-          console.log('💨 거리 초과로 제거된 큐브:', obj.position);
+          console.log('큐브 자동 제거됨:', obj.position);
         });
       }, 1000);
     }
 
-    // ✅ groundY 기준으로 사용자 근처 랜덤 위치에 큐브 생성
-    function spawnRandomCubeNearUser() {
-      if (groundY === null) return; // 바닥 감지 전엔 생략
-
-      const userPos = new THREE.Vector3();
-      camera.getWorldPosition(userPos);
-
-      const angle = Math.random() * Math.PI * 2;
-      const radius = Math.random() * 10.0;
-
-      const dx = Math.cos(angle) * radius;
-      const dz = Math.sin(angle) * radius;
-
-      const spawnPos = new THREE.Vector3(
-        userPos.x + dx,
-        groundY, // 바닥 높이 고정
-        userPos.z + dz
-      );
-
-      const cube = new THREE.Mesh(
-        new THREE.BoxGeometry(0.2, 0.2, 0.2),
-        new THREE.MeshStandardMaterial({ color: Math.random() * 0xffffff })
-      );
-      cube.position.copy(spawnPos);
-      scene.add(cube);
-      console.log('🎲 큐브 생성됨:', spawnPos);
+    // AND 조건 검사: 바닥 인식 && 함수 호출됨
+    function checkAndStartCubeSystem() {
+      if (groundY !== null && cubeSystemEnabled && !cubeSystemActivated) {
+        startCubeSystem();
+      }
     }
 
-    // ✅ WebXR hit-test: 바닥 감지를 통해 groundY 설정
+    // 외부에서 큐브 시스템 ON 요청 시 호출
+    function activateCubeSystem() {
+      cubeSystemEnabled = true;
+      checkAndStartCubeSystem();
+    }
+
+    // 큐브 시스템 중단
+    function deactivateCubeSystem() {
+      cubeSystemEnabled = false;
+      cubeSystemActivated = false;
+      if (cubeSpawnIntervalId !== null) clearInterval(cubeSpawnIntervalId);
+      if (cubeCleanupIntervalId !== null) clearInterval(cubeCleanupIntervalId);
+      cubeSpawnIntervalId = null;
+      cubeCleanupIntervalId = null;
+      console.log("큐브 시스템 비활성화됨");
+    }
+
+    // WebXR hit-test로 바닥 인식
     let hitTestSource = null;
     let localSpace = null;
 
@@ -189,7 +222,6 @@
         const refSpace = renderer.xr.getReferenceSpace();
         const session = renderer.xr.getSession();
 
-        // hit-test 소스 요청
         if (hitTestSource === null) {
           session.requestReferenceSpace('viewer').then(space => {
             localSpace = space;
@@ -202,25 +234,32 @@
             hitTestSource = null;
             localSpace = null;
             groundY = null;
+            deactivateCubeSystem();
+            message.style.display = 'block';
           });
         }
 
-        // 최초 바닥 인식 시 groundY 설정
         if (hitTestSource && localSpace) {
           const hitTestResults = frame.getHitTestResults(hitTestSource);
           if (hitTestResults.length > 0) {
             const pose = hitTestResults[0].getPose(refSpace);
             if (groundY === null) {
               groundY = pose.transform.position.y;
-              console.log('📍 바닥 고도 설정됨:', groundY);
+              console.log('바닥 고도 설정됨:', groundY);
+              checkAndStartCubeSystem();
             }
           }
         }
       }
-
-      // 렌더링
       renderer.render(scene, camera);
     }
+
+    // 전역 함수 등록 (콘솔 또는 외부 UI에서 호출 가능)
+    window.activateCubeSystem = activateCubeSystem;
+    window.deactivateCubeSystem = deactivateCubeSystem;
+    window.addEventListener('touchstart', () => {
+      activateCubeSystem();
+    });
   </script>
 </body>
 </html>
