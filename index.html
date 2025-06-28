@@ -125,7 +125,12 @@
 
     // 십자선 오브젝트 생성 함수
     function createCrosshairObject() {
-      const material = new THREE.LineBasicMaterial({ color: 0xffffff });
+      const material = new THREE.LineBasicMaterial({ 
+        color: 0xffffff,
+        depthTes: false,
+        transparent: true
+
+       });
       const size = 0.02;
       const points = [
         new THREE.Vector3(-size, 0, -0.5), new THREE.Vector3(size, 0, -0.5),
@@ -133,6 +138,9 @@
       ];
       const geometry = new THREE.BufferGeometry().setFromPoints(points);
       const crosshair = new THREE.LineSegments(geometry, material);
+      camera.add(crosshair);
+
+      crosshair.renderOrder = 999;
       camera.add(crosshair);
     }
 
