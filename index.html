@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>WebXR AR - AND GATE 큐브 시스템</title>
+  <title>증강현실</title>
   <style>
     body { margin: 0; overflow: hidden; }
     canvas { display: block; }
@@ -74,8 +74,8 @@
       const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
       scene.add(light);
 
-      // 십자선 오브젝트 생성 및 카메라에 부착
-      createCrosshairObject();
+      // + 형태의 십자선 오브젝트 생성
+      createPlusCrosshair();
 
       controller = renderer.xr.getController(0);
       controller.addEventListener('select', () => {
@@ -102,7 +102,6 @@
               scoreDisplay.textContent = `점수: ${point}`;
               console.log(`큐브 제거됨. 현재 점수: ${point}`);
 
-              // 점수가 3점일 경우 스탬프 1 증가 후 점수 초기화
               if (point >= 3) {
                 stamp++;
                 point = 0;
@@ -123,21 +122,21 @@
       renderer.setAnimationLoop(render);
     }
 
-    // 십자선 오브젝트 생성 함수
-    function createCrosshairObject() {
-      const material = new THREE.LineBasicMaterial({ 
-        color: 0xffffff,
-        depthTes: false,
+    function createPlusCrosshair() {
+      const material = new THREE.LineBasicMaterial({
+        color: 0xff0000,
+        depthTest: false,
         transparent: true
-       });
-      const size = 0.02;
+      });
+
+      const size = 0.05;
       const points = [
-        new THREE.Vector3(-size, 0, -0.5), new THREE.Vector3(size, 0, -0.5),
-        new THREE.Vector3(0, -size, -0.5), new THREE.Vector3(0, size, -0.5)
+        new THREE.Vector3(-size, 0, -2), new THREE.Vector3(size, 0, -2),
+        new THREE.Vector3(0, -size, -2), new THREE.Vector3(0, size, -2)
       ];
+
       const geometry = new THREE.BufferGeometry().setFromPoints(points);
       const crosshair = new THREE.LineSegments(geometry, material);
-      camera.add(crosshair);
 
       crosshair.renderOrder = 999;
       camera.add(crosshair);
@@ -265,8 +264,10 @@
 
     window.activateCubeSystem = activateCubeSystem;
     window.deactivateCubeSystem = deactivateCubeSystem;
+
+    // 터치 시작 시 큐브 시스템 활성화(데모버전이라 외부호출 무시)
     window.addEventListener('touchstart', () => {
-      activateCubeSystem() // 외부에서 호출이 있으면 활성화되는 것을 데모 버전에선 그냥 화면 클릭으로 변환
+      activateCubeSystem();
     });
   </script>
 </body>
